@@ -1,0 +1,7 @@
+/Angstrom/Cointerra/logs/cgminer.log {
+    rotate 9
+    missingok
+    compress
+    maxsize 1500
+}
+

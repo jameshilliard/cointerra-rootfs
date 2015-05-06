@@ -1,0 +1,54 @@
+#!/bin/sh
+#
+# Monitor linkstate and power button
+#
+
+LED_RED='/sys/class/leds/beaglebone:red:usr5'
+LED_GREEN='/sys/class/leds/beaglebone:green:usr4'
+
+clear_led_triggers()
+{
+    local LED
+    for LED in ${LED_RED} ${LED_GREEN}; do
+        echo none > ${LED}/trigger
+        echo 0 > ${LED}/brightness
+    done
+}
+
+check_phy_error()
+{
+    if dmesg | egrep -q 'mdio:00.*not found.*slave 0'; then
+        return 1
+    fi
+    return 0
+}
+
+sanity_check()
+{
+    # check phy - red light on failure
+    if ! check_phy_error; then
+        clear_led_triggers
+        echo 1 > ${LED_RED}/brightness
+        return 1
+    fi
+
+    return 0
+}
+
+case "${1}" in
+    start)
+        sanity_check
+        echo -n "Starting status monitor: "
+        start-stop-daemon -b -S -q -m -p /var/run/statusd.pid \
+            --exec /opt/statusd
+        echo "OK"
+        ;;
+    stop)
+        echo -n "Stopping status monitor: "
+        start-stop-daemon -K -q -p /var/run/statusd.pid
+        echo "OK"
+        ;;
+    *) echo "Usage: ${0} {start|stop}" >&2
+        exit 1
+        ;;
+esac

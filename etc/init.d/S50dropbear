@@ -1,0 +1,63 @@
+#!/bin/sh
+#
+# Starts dropbear sshd.
+#
+
+# Make sure the dropbearkey progam exists
+[ -x /usr/bin/dropbearkey ] || exit 1
+
+start() {
+    echo -n "Starting dropbear sshd: "
+
+    local RSA_KEY='/Angstrom/Cointerra/dropbear_rsa_host_key'
+    local DSS_KEY='/Angstrom/Cointerra/dropbear_dss_host_key'
+
+    # Make sure dropbear directory exists
+    mkdir -p /etc/dropbear > /dev/null 2>&1 || true
+
+    # Validate the dropbear host keys
+    local KEY
+    for KEY in ${RSA_KEY} ${DSS_KEY}; do
+        local REGEN=0
+        [ ${KEY} == ${RSA_KEY} ] && KEY_TYPE='rsa' || KEY_TYPE='dss'
+        # make sure we regen if the file doesn't exist OR file is empty
+        [ -s ${KEY} -a -f ${KEY} ] || REGEN=1
+        /usr/bin/dropbearkey -y -f ${KEY} > /dev/null 2>&1 || REGEN=1
+        if [ ${REGEN} -ne 0 ]; then
+            rm ${KEY} > /dev/null 2>&1
+            echo -n "Generating ${KEY_TYPE} key..."
+            /usr/bin/dropbearkey -t ${KEY_TYPE} -f ${KEY} > /dev/null 2>&1
+        fi
+        ln -sf ${KEY} /etc/dropbear/${KEY##*/}
+    done
+
+    umask 077
+    start-stop-daemon -S -q -p /var/run/dropbear.pid --exec /usr/sbin/dropbear
+    echo "OK"
+}
+
+stop() {
+    echo -n "Stopping dropbear sshd: "
+    start-stop-daemon -K -q -p /var/run/dropbear.pid
+    echo "OK"
+}
+
+restart() {
+    stop
+    start
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart|reload)
+        restart
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac

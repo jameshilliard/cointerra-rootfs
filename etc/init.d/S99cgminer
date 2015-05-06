@@ -1,0 +1,118 @@
+#!/bin/sh
+#
+# Start cgminer
+#
+
+CGMINER_LOG_ARCHIVE_MAXSIZE=5000 # kilobytes
+CGMINER_LOGROTATE_CONF=/etc/logrotate.d/cgminer # only use first entry below
+
+if [ ! -e ${CGMINER_LOGROTATE_CONF} ]; then
+  echo "cgminer requires a logrotate configuration file"
+  exit 1
+fi
+rotateconf=`cat $CGMINER_LOGROTATE_CONF | grep "{$" | awk '{ print $1 }'`
+
+CGMINER_LOG_DIR="${rotateconf%/*}/"
+CGMINER_LOG_NAME=`basename $rotateconf`
+
+start() {
+    echo -n "Starting cgminer: "
+    # Make sure directory exists
+    if [ ! -d /Angstrom/Cointerra/ ] ; then
+        mkdir -p /Angstrom/Cointerra
+    fi
+
+    # preserve a log if it exists
+    if [ ! -d $CGMINER_LOG_DIR ] ; then
+        mkdir -p $CGMINER_LOG_DIR
+    fi
+    /usr/sbin/logrotate $CGMINER_LOGROTATE_CONF
+
+    # create a soft-link from the old log location (broken until cgminer starts)
+    ln -sf ${CGMINER_LOG_DIR}${CGMINER_LOG_NAME} /tmp/cgminer.log
+
+    # ensure archived logs don't use too much space
+    lognum=`cat $CGMINER_LOGROTATE_CONF | grep rotate | awk '{ print $2 }'`
+    while [ ${CGMINER_LOG_ARCHIVE_MAXSIZE} -lt `du -c ${CGMINER_LOG_DIR}*.gz | grep total | awk '{ print $1 }'` ]; do
+      logfile="${CGMINER_LOG_DIR}${CGMINER_LOG_NAME}.${lognum}.gz"
+      echo -n "log cleanup: looking for '${logfile}'"
+      if [ -e $logfile ]; then
+        rm $logfile
+        echo "... removed"
+      else
+        echo "... not found"
+      fi
+      lognum=$((lognum-1))
+    done
+
+    # Check for the config file
+    if [ ! -f /Angstrom/Cointerra/cgminer.conf ] ; then
+        echo -n "copying default config file... "
+        cp /opt/cgminer.conf /Angstrom/Cointerra/cgminer.conf
+    fi
+
+    if [ ! -f /Angstrom/Cointerra/cta_load ] ; then
+        echo -n "255" > /Angstrom/Cointerra/cta_load
+    fi
+
+    if [ -s /Angstrom/Cointerra/cta_load ] ; then
+        CTA_LOAD=`cat /Angstrom/Cointerra/cta_load`
+    else
+        CTA_LOAD=255
+    fi
+    CONFIG_FILE=/Angstrom/Cointerra/cgminer.conf
+
+    PS_LOAD=0
+    if [ -f /Angstrom/Cointerra/ps_load ] ; then
+        if [ -s /Angstrom/Cointerra/ps_load ] ; then
+            PS_LOAD=`cat /Angstrom/Cointerra/ps_load`
+        fi
+    fi
+
+    if [ -f /tmp/testing.conf ] ; then
+        CONFIG_FILE=/tmp/testing.conf
+    fi
+
+    # Flush buffer before starting cgminer
+    if [ -x /opt/cointool ] ; then
+        /opt/cointool
+    fi
+
+    umask 077
+    /usr/bin/cgminer -c $CONFIG_FILE --api-listen --api-port 4028 \
+        --api-network --cta-load $CTA_LOAD --ps-load $PS_LOAD -T > \
+        ${CGMINER_LOG_DIR}${CGMINER_LOG_NAME} &
+
+    [ -f /opt/no_restart_cgminer ] && rm -f /opt/no_restart_cgminer
+
+    echo "OK"
+}
+
+stop() {
+    echo -n "Stopping cgminer: "
+    touch /opt/no_restart_cgminer
+    killall cgminer
+    sleep 5
+    killall -9 cgminer
+    echo "OK"
+}
+
+restart() {
+    stop
+    start
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart|reload)
+        restart
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac

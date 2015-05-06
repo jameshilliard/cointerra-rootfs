@@ -1,0 +1,1 @@
+*/5 * * * * /opt/restart_cgminer.sh

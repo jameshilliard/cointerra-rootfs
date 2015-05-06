@@ -1,0 +1,134 @@
+#!/bin/sh
+#
+# Starts dropbear sshd.
+#
+
+# Make sure the dropbearkey progam exists
+
+start() {
+ 	echo -n "Copy Files from NV storage: "
+	# Make sure directory exists
+	if [ ! -d /Angstrom/Cointerra ] ; then
+		mkdir -p /Angstrom/Cointerra
+	fi
+
+  # if 
+  if [ ! -f /Angstrom/Cointerra/server.pem ] ; then
+    openssl req -new -x509 -keyout /Angstrom/Cointerra/server.pem -out /Angstrom/Cointerra/server.pem -days 365 -nodes -subj '/CN=www.mydom.com/O=My Company Name LTD./C=US'
+    cp /Angstrom/Cointerra/server.pem /etc/ssl/private/
+  else
+    cp /Angstrom/Cointerra/server.pem /etc/ssl/private/
+  fi
+
+  # interfaces file
+  if [ -f /Angstrom/Cointerra/interfaces ] ; then
+    echo -n "copy interfaces.. "
+    cp /Angstrom/Cointerra/interfaces /etc/network/interfaces
+  else 
+    cp /etc/network/interfaces /Angstrom/Cointerra/interfaces
+  fi
+
+  # resolv.conf file
+  if [ -f /Angstrom/Cointerra/resolv.conf ] ; then
+    echo -n "copy resolv.conf...  "
+    cp /Angstrom/Cointerra/resolv.conf /etc/
+  fi
+
+  # set the hostname
+  if [ -f /Angstrom/Cointerra/hostname ] ; then
+    cp /Angstrom/Cointerra/hostname /etc/hostname
+  else
+    hostname terraminer-`hexdump -e '8/1 "%c"' /sys/bus/i2c/devices/0-0050/eeprom -s 16 -n 12`
+  fi
+
+  # if there doesn't exist a web password file, make one
+  if [ ! -f /Angstrom/Cointerra/lighttpd.password ] ; then
+    echo "admin:" > /Angstrom/Cointerra/lighttpd.password
+  fi
+  chmod a+rw /Angstrom/Cointerra/lighttpd.password
+
+  if [ -f /Angstrom/Cointerra/passwd ] ; then
+    rm /etc/passwd
+  else 
+    mv /etc/passwd /Angstrom/Cointerra/passwd
+  fi
+  ln -s /Angstrom/Cointerra/passwd /etc/passwd
+
+  if [ -f /Angstrom/Cointerra/shadow ] ; then
+    rm /etc/shadow
+  else 
+    mv /etc/shadow /Angstrom/Cointerra/shadow
+  fi
+  ln -s /Angstrom/Cointerra/shadow /etc/shadow
+
+
+  echo 5 > /proc/sys/kernel/panic
+  echo 5 > /proc/sys/kernel/panic_on_oops
+
+  # flash fast
+  #echo "timer" > /sys/class/leds/beaglebone\:green\:usr4/trigger
+  #echo 100 > /sys/class/leds/beaglebone\:green\:usr4/delay_on
+  #echo 100 > /sys/class/leds/beaglebone\:green\:usr4/delay_off
+
+  if [ ! -f /Angstrom/Cointerra/crontab.root ] ; then
+    cp /opt/crontab.root /Angstrom/Cointerra/crontab.root
+  fi
+  mkdir -p /var/spool/cron/crontabs
+  cp /Angstrom/Cointerra/crontab.root /var/spool/cron/crontabs/root
+
+  touch /opt/no_restart_cgminer
+
+  # custom startup script in flash
+  if [ -f /Angstrom/Cointerra/startup.sh ] ; then
+    echo "Run custom startup script"
+    sh /Angstrom/Cointerra/startup.sh
+  fi
+
+  echo -n "upgrade GSA boards..." 
+  for UPGRADE_FILE in /opt/GSA_*.dfu; do
+    [[ -f ${UPGRADE_FILE} ]] || continue
+  done
+  if [ -f $UPGRADE_FILE ] ; then
+    /opt/upgrade_GSA.sh $UPGRADE_FILE
+  fi
+  echo "done"
+
+	echo "OK"
+}
+stop() {
+	echo "OK"
+}
+restart() {
+	stop
+	start
+}
+clear() {
+  # flash fast
+  echo "timer" > /sys/class/leds/beaglebone\:red\:usr5/trigger
+  sleep 1
+  echo 50 > /sys/class/leds/beaglebone\:red\:usr5/delay_on
+  echo 50 > /sys/class/leds/beaglebone\:red\:usr5/delay_off
+
+  rm -rf /Angstrom/Cointerra/*
+}
+
+case "$1" in
+  clear)
+    clear
+  ;;
+  start)
+  	start
+	;;
+  stop)
+  	stop
+	;;
+  restart|reload)
+  	restart
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart|clear}"
+	exit 1
+esac
+
+exit $?
+
